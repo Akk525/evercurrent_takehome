@@ -1,0 +1,72 @@
+[
+  {
+    "thread_id": "m_001",
+    "channel_id": "ch_suppliers",
+    "root_message_id": "m_001",
+    "participant_ids": ["u_carlos", "u_alice", "u_evan", "u_fiona"],
+    "message_ids": ["m_001", "m_002", "m_003", "m_004", "m_005", "m_006"],
+    "started_at": "2026-04-08T09:12:00Z",
+    "last_activity_at": "2026-04-08T14:20:00Z",
+    "reply_count": 5
+  },
+  {
+    "thread_id": "m_010",
+    "channel_id": "ch_firmware",
+    "root_message_id": "m_010",
+    "participant_ids": ["u_bob", "u_greg", "u_diana", "u_hana"],
+    "message_ids": ["m_010", "m_011", "m_012", "m_013", "m_014", "m_015", "m_016"],
+    "started_at": "2026-04-09T08:00:00Z",
+    "last_activity_at": "2026-04-09T11:00:00Z",
+    "reply_count": 6
+  },
+  {
+    "thread_id": "m_020",
+    "channel_id": "ch_testing",
+    "root_message_id": "m_020",
+    "participant_ids": ["u_diana", "u_alice", "u_evan", "u_fiona"],
+    "message_ids": ["m_020", "m_021", "m_022", "m_023", "m_024"],
+    "started_at": "2026-04-09T14:00:00Z",
+    "last_activity_at": "2026-04-09T16:00:00Z",
+    "reply_count": 4
+  },
+  {
+    "thread_id": "m_030",
+    "channel_id": "ch_hw_general",
+    "root_message_id": "m_030",
+    "participant_ids": ["u_fiona", "u_alice", "u_bob", "u_evan", "u_hana"],
+    "message_ids": ["m_030", "m_031", "m_032", "m_033", "m_034", "m_035"],
+    "started_at": "2026-04-09T09:00:00Z",
+    "last_activity_at": "2026-04-09T16:00:00Z",
+    "reply_count": 5
+  },
+  {
+    "thread_id": "m_040",
+    "channel_id": "ch_hw_general",
+    "root_message_id": "m_040",
+    "participant_ids": ["u_hana", "u_alice", "u_bob", "u_carlos", "u_diana", "u_evan", "u_fiona"],
+    "message_ids": ["m_040", "m_041", "m_042", "m_043", "m_044", "m_045"],
+    "started_at": "2026-04-09T13:00:00Z",
+    "last_activity_at": "2026-04-09T13:35:00Z",
+    "reply_count": 5
+  },
+  {
+    "thread_id": "m_050",
+    "channel_id": "ch_testing",
+    "root_message_id": "m_050",
+    "participant_ids": ["u_diana", "u_bob", "u_greg"],
+    "message_ids": ["m_050", "m_051", "m_052", "m_053"],
+    "started_at": "2026-04-08T16:00:00Z",
+    "last_activity_at": "2026-04-08T17:20:00Z",
+    "reply_count": 3
+  },
+  {
+    "thread_id": "m_060",
+    "channel_id": "ch_suppliers",
+    "root_message_id": "m_060",
+    "participant_ids": ["u_carlos", "u_fiona", "u_evan"],
+    "message_ids": ["m_060", "m_061", "m_062"],
+    "started_at": "2026-04-09T08:30:00Z",
+    "last_activity_at": "2026-04-09T10:00:00Z",
+    "reply_count": 2
+  }
+]

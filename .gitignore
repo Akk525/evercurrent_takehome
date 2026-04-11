@@ -1,0 +1,51 @@
+# Local secrets and machine-specific config
+.env
+.env.*
+!.env.example
+CLAUDE.md
+
+# Python caches and test artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+
+# Packaging and build outputs
+build/
+dist/
+*.egg-info/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Generated digest outputs
+outputs/
+
+# Logs and local temp files
+*.log
+*.tmp
+*.temp
+.DS_Store
+
+# Large local artifacts
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.gz
+*.7z
+*.db
+*.sqlite
+*.sqlite3
+*.parquet
+*.pkl
+*.pickle

@@ -1,0 +1,50 @@
+[
+  {
+    "user_id": "u_alice",
+    "display_name": "Alice Chen",
+    "role": "Hardware Engineer",
+    "channel_ids": ["ch_hw_general", "ch_suppliers", "ch_testing"]
+  },
+  {
+    "user_id": "u_bob",
+    "display_name": "Bob Kline",
+    "role": "Firmware Engineer",
+    "channel_ids": ["ch_hw_general", "ch_firmware", "ch_testing"]
+  },
+  {
+    "user_id": "u_carlos",
+    "display_name": "Carlos Rivera",
+    "role": "Supply Chain Manager",
+    "channel_ids": ["ch_suppliers", "ch_hw_general"]
+  },
+  {
+    "user_id": "u_diana",
+    "display_name": "Diana Park",
+    "role": "Test Engineer",
+    "channel_ids": ["ch_testing", "ch_hw_general", "ch_firmware"]
+  },
+  {
+    "user_id": "u_evan",
+    "display_name": "Evan Marsh",
+    "role": "Hardware Engineer",
+    "channel_ids": ["ch_hw_general", "ch_suppliers", "ch_testing"]
+  },
+  {
+    "user_id": "u_fiona",
+    "display_name": "Fiona Osei",
+    "role": "Program Manager",
+    "channel_ids": ["ch_hw_general", "ch_suppliers", "ch_firmware", "ch_testing"]
+  },
+  {
+    "user_id": "u_greg",
+    "display_name": "Greg Tanaka",
+    "role": "Firmware Engineer",
+    "channel_ids": ["ch_firmware", "ch_testing"]
+  },
+  {
+    "user_id": "u_hana",
+    "display_name": "Hana Volkov",
+    "role": "Hardware Engineer",
+    "channel_ids": ["ch_hw_general", "ch_testing"]
+  }
+]

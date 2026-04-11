@@ -1,0 +1,26 @@
+[
+  {
+    "channel_id": "ch_hw_general",
+    "name": "hw-general",
+    "topic": "hardware",
+    "member_ids": ["u_alice", "u_bob", "u_carlos", "u_diana", "u_evan", "u_fiona", "u_hana"]
+  },
+  {
+    "channel_id": "ch_suppliers",
+    "name": "suppliers-and-procurement",
+    "topic": "supply-chain",
+    "member_ids": ["u_alice", "u_carlos", "u_evan", "u_fiona"]
+  },
+  {
+    "channel_id": "ch_firmware",
+    "name": "firmware-bringup",
+    "topic": "firmware",
+    "member_ids": ["u_bob", "u_diana", "u_fiona", "u_greg"]
+  },
+  {
+    "channel_id": "ch_testing",
+    "name": "test-and-validation",
+    "topic": "testing",
+    "member_ids": ["u_alice", "u_bob", "u_diana", "u_evan", "u_fiona", "u_greg", "u_hana"]
+  }
+]
