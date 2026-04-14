@@ -3,10 +3,12 @@
 Run the digest engine and output per-user digests.
 
 Usage:
-    python scripts/run_digest.py                     # All users
-    python scripts/run_digest.py --user u_alice      # One user
-    python scripts/run_digest.py --user u_alice --llm gemini  # With LLM
-    python scripts/run_digest.py --output outputs/   # Save JSON
+    python scripts/run_digest.py                                   # All users
+    python scripts/run_digest.py --user u_alice                    # One user
+    python scripts/run_digest.py --user u_alice --llm gemini       # With LLM
+    python scripts/run_digest.py --output outputs/                 # Save JSON
+    python scripts/run_digest.py --metrics                         # Show perf report
+    python scripts/run_digest.py --from-enrichment outputs/enrichment.json  # Online mode
 """
 
 from __future__ import annotations
@@ -20,7 +22,7 @@ from pathlib import Path
 # Allow running from project root
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.digest import run_full_pipeline
+from src.digest import run_full_pipeline, run_online_digest
 from src.summarization.providers import FallbackProvider, GeminiProvider
 
 
@@ -43,6 +45,21 @@ def main():
         default="2026-04-10",
         help="Digest date (YYYY-MM-DD, default: 2026-04-10)",
     )
+    parser.add_argument(
+        "--debug-user",
+        metavar="USER_ID",
+        help="Show full ranking breakdown for a user, including excluded events",
+    )
+    parser.add_argument(
+        "--from-enrichment",
+        metavar="PATH",
+        help="Path to a pre-computed enrichment snapshot (skips enrichment stage)",
+    )
+    parser.add_argument(
+        "--metrics",
+        action="store_true",
+        help="Print pipeline performance metrics after the run",
+    )
     args = parser.parse_args()
 
     data_dir = Path(__file__).parent.parent / "data" / "mock_slack"
@@ -60,24 +77,57 @@ def main():
         print("[llm] Using fallback (rule-based) summarization")
 
     user_ids = [args.user] if args.user else None
+    debug_user = args.debug_user
 
     # Fix the clock so recency scores are deterministic
     now = datetime.fromisoformat(f"{args.date}T12:00:00").replace(tzinfo=timezone.utc)
 
-    print(f"\nRunning digest pipeline for date: {args.date}")
-    print(f"Data dir: {data_dir}\n")
+    # If debug mode: force include_excluded=True for the target user
+    include_excluded = debug_user is not None
+    if debug_user and not user_ids:
+        user_ids = [debug_user]
 
-    digests = run_full_pipeline(
-        data_dir=data_dir,
-        user_ids=user_ids,
-        top_k=args.top_k,
-        provider=provider,
-        now=now,
-        date_str=args.date,
-    )
+    # Set up metrics collector if requested
+    metrics = None
+    if args.metrics:
+        from src.observability import PipelineMetrics
+        metrics = PipelineMetrics()
+
+    if args.from_enrichment:
+        enrichment_path = Path(args.from_enrichment)
+        print(f"\nRunning online digest (from enrichment snapshot: {enrichment_path})")
+        print(f"Date: {args.date}\n")
+        digests = run_online_digest(
+            enrichment_path=enrichment_path,
+            user_ids=user_ids,
+            top_k=args.top_k,
+            provider=provider,
+            now=now,
+            date_str=args.date,
+            include_excluded=include_excluded,
+        )
+    else:
+        print(f"\nRunning digest pipeline for date: {args.date}")
+        print(f"Data dir: {data_dir}\n")
+        digests = run_full_pipeline(
+            data_dir=data_dir,
+            user_ids=user_ids,
+            top_k=args.top_k,
+            provider=provider,
+            now=now,
+            date_str=args.date,
+            include_excluded=include_excluded,
+            metrics=metrics,
+        )
 
     for uid, digest in digests.items():
         print_digest(digest)
+
+    if debug_user and debug_user in digests:
+        print_debug(digests[debug_user])
+
+    if metrics is not None:
+        metrics.print_report()
 
     if args.output:
         output_dir = Path(args.output)
@@ -109,9 +159,31 @@ def print_digest(digest):
         print(
             f"       Features: affinity={f.user_affinity:.2f} importance={f.importance:.2f} "
             f"urgency={f.urgency:.2f} momentum={f.momentum:.2f} "
-            f"novelty={f.novelty:.2f} recency={f.recency:.2f}"
+            f"novelty={f.novelty:.2f} recency={f.recency:.2f} "
+            f"emb_affinity={f.embedding_affinity:.2f}"
         )
-        print(f"       Source threads: {item.source_thread_ids}")
+        thread_ids = ", ".join(item.source_thread_ids)
+        msg_count = len(item.source_message_ids)
+        print(f"       Source: thread(s) [{thread_ids}]  |  {msg_count} message(s)")
+        print()
+    print()
+
+
+def print_debug(digest):
+    """Print the full ranking breakdown including events that didn't make the cut."""
+    print("=" * 70)
+    print(f"DEBUG VIEW — {digest.user_id}  (events excluded from digest)")
+    print()
+
+    if not digest.excluded_items:
+        print("  No excluded items (all events made the cut or include_excluded not set)")
+        print()
+        return
+
+    for item in digest.excluded_items:
+        print(f"  [EXCLUDED] {item.title}")
+        print(f"             Score: {item.score:.3f}")
+        print(f"             Reason: {item.top_exclusion_reason}")
         print()
     print()
 

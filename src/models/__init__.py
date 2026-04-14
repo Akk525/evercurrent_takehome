@@ -6,7 +6,9 @@ from .derived import (
     UserContextProfile,
     RankedDigestItem,
     RankingFeatures,
+    ExcludedDigestItem,
     DailyDigest,
+    SharedEventSummary,
 )
 
 __all__ = [
@@ -21,5 +23,7 @@ __all__ = [
     "UserContextProfile",
     "RankedDigestItem",
     "RankingFeatures",
+    "ExcludedDigestItem",
     "DailyDigest",
+    "SharedEventSummary",
 ]

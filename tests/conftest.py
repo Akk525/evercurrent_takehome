@@ -31,7 +31,7 @@ def enriched_events(workspace):
 
 @pytest.fixture(scope="session")
 def profiles(workspace, enriched_events):
-    return build_user_profiles(workspace, enriched_events)
+    return build_user_profiles(workspace, enriched_events, now=NOW)
 
 
 @pytest.fixture(scope="session")

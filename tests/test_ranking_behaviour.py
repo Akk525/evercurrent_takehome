@@ -2,6 +2,9 @@
 Scenario-driven behavioural tests for the ranking system.
 
 These test that the system makes reasonable decisions, not just that code runs.
+
+Note: rank_events_for_user() returns (selected_items, excluded_items).
+All tests unpack accordingly.
 """
 
 from __future__ import annotations
@@ -24,13 +27,11 @@ def test_blocker_outranks_noise(enriched_events, profiles):
     above the Friday lunch social thread for any technically active user.
     """
     profile = profiles["u_alice"]  # Active hardware engineer
-    ranked = rank_events_for_user(enriched_events, profile, top_k=7, now=NOW)
+    ranked, _ = rank_events_for_user(enriched_events, profile, top_k=7, now=NOW)
 
     scored_by_id = {item.event_id: item.score for item in ranked}
 
-    # Social thread event ID
     noise_id = "evt_m_040"
-    # Blocker / risk event IDs
     blocker_id = "evt_m_010"  # I2C hang
     risk_id = "evt_m_020"     # Thermal failure
 
@@ -81,17 +82,16 @@ def test_different_users_get_different_digests(enriched_events, profiles):
     Alice (hardware/supplier-focused) and Bob (firmware-focused) should receive
     different top-ranked events.
     """
-    alice_ranked = rank_events_for_user(
+    alice_ranked, _ = rank_events_for_user(
         enriched_events, profiles["u_alice"], top_k=3, now=NOW
     )
-    bob_ranked = rank_events_for_user(
+    bob_ranked, _ = rank_events_for_user(
         enriched_events, profiles["u_bob"], top_k=3, now=NOW
     )
 
     alice_top_ids = [item.event_id for item in alice_ranked]
     bob_top_ids = [item.event_id for item in bob_ranked]
 
-    # They should not have identical top-3 in the same order
     assert alice_top_ids != bob_top_ids, (
         "Alice and Bob received identical digest orderings — user affinity is likely broken"
     )
@@ -105,7 +105,7 @@ def test_firmware_user_gets_firmware_events(enriched_events, profiles):
     """
     Bob (firmware engineer) should have the I2C hang (firmware blocker) in his top 3.
     """
-    bob_ranked = rank_events_for_user(
+    bob_ranked, _ = rank_events_for_user(
         enriched_events, profiles["u_bob"], top_k=5, now=NOW
     )
     top_ids = [item.event_id for item in bob_ranked]
@@ -125,7 +125,7 @@ def test_supplier_user_gets_supplier_events(enriched_events, profiles):
     Alice is active in suppliers channel and has hardware topics —
     she should have the connector delay (supply chain risk) in her top results.
     """
-    alice_ranked = rank_events_for_user(
+    alice_ranked, _ = rank_events_for_user(
         enriched_events, profiles["u_alice"], top_k=5, now=NOW
     )
     top_ids = [item.event_id for item in alice_ranked]
@@ -145,7 +145,7 @@ def test_digest_items_are_traceable(enriched_events, profiles):
     Every ranked digest item must have non-empty source_thread_ids and source_message_ids.
     """
     for uid, profile in profiles.items():
-        ranked = rank_events_for_user(enriched_events, profile, top_k=5, now=NOW)
+        ranked, _ = rank_events_for_user(enriched_events, profile, top_k=5, now=NOW)
         for item in ranked:
             assert item.source_thread_ids, (
                 f"Item {item.event_id} for user {uid} has no source_thread_ids"
@@ -164,7 +164,7 @@ def test_ranked_items_have_feature_breakdowns(enriched_events, profiles):
     Every ranked item must expose a RankingFeatures object with non-null values.
     """
     profile = profiles["u_fiona"]  # PM — sees everything
-    ranked = rank_events_for_user(enriched_events, profile, top_k=5, now=NOW)
+    ranked, _ = rank_events_for_user(enriched_events, profile, top_k=5, now=NOW)
 
     for item in ranked:
         f = item.reason_features
@@ -187,7 +187,7 @@ def test_fallback_summarization_works(enriched_events, profiles, events_by_id):
     from src.ranking import rank_events_for_user
 
     profile = profiles["u_diana"]
-    ranked = rank_events_for_user(enriched_events, profile, top_k=3, now=NOW)
+    ranked, _ = rank_events_for_user(enriched_events, profile, top_k=3, now=NOW)
     result = summarize_digest_items(
         ranked,
         events_by_id=events_by_id,
@@ -203,7 +203,7 @@ def test_fallback_summarization_works(enriched_events, profiles, events_by_id):
 
 
 # ---------------------------------------------------------------------------
-# Test 9: High-urgency events rank above low-urgency events (all else equal)
+# Test 9: High-urgency events carry non-trivial urgency scores
 # ---------------------------------------------------------------------------
 
 def test_urgency_signal_present_in_blocker(enriched_events):

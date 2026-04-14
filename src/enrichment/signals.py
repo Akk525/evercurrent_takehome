@@ -60,23 +60,60 @@ def compute_urgency(event: CandidateEvent) -> float:
 
 def compute_momentum(event: CandidateEvent) -> float:
     """
-    Momentum = thread activity density.
-    High reply count + multiple participants in a short window = high momentum.
+    Momentum = thread activity density (keyword-based baseline).
+    Used when per-message data isn't available.
     """
-    # Duration in hours
     duration_hours = max(
         (event.last_activity_at - event.started_at).total_seconds() / 3600.0,
         0.1,
     )
-    # Messages per hour as a proxy for engagement velocity
     msg_rate = event.message_count / duration_hours
-    # Normalise: 3+ messages/hour = high momentum
+    rate_score = min(msg_rate / 3.0, 1.0)
+    participant_score = min(event.unique_participant_count / 4.0, 1.0)
+    return min(0.6 * rate_score + 0.4 * participant_score, 1.0)
+
+
+def compute_momentum_enhanced(
+    event: CandidateEvent,
+    thread_messages: list,
+) -> float:
+    """
+    Enhanced momentum using per-message timestamps.
+
+    Signals:
+    1. Message growth rate (messages/hour over thread duration)
+    2. New participant spike — did the thread gain new participants in the 2nd half?
+    3. Participant diversity
+    """
+    if not thread_messages or len(thread_messages) < 2:
+        return compute_momentum(event)
+
+    sorted_msgs = sorted(thread_messages, key=lambda m: m.timestamp)
+
+    # Duration in hours
+    duration_hours = max(
+        (sorted_msgs[-1].timestamp - sorted_msgs[0].timestamp).total_seconds() / 3600.0,
+        0.1,
+    )
+
+    # 1. Message growth rate
+    msg_rate = len(sorted_msgs) / duration_hours
     rate_score = min(msg_rate / 3.0, 1.0)
 
-    # Participant diversity boosts momentum
-    participant_score = min(event.unique_participant_count / 4.0, 1.0)
+    # 2. New participant spike detection
+    # Compare participant set in first half vs second half of thread
+    midpoint = sorted_msgs[len(sorted_msgs) // 2].timestamp
+    early_participants = {m.user_id for m in sorted_msgs if m.timestamp <= midpoint}
+    late_participants = {m.user_id for m in sorted_msgs if m.timestamp > midpoint}
+    new_late_participants = late_participants - early_participants
+    # Normalise: 2+ new late participants = full spike score
+    spike_score = min(len(new_late_participants) / 2.0, 1.0)
 
-    return min(0.6 * rate_score + 0.4 * participant_score, 1.0)
+    # 3. Overall participant diversity
+    all_participants = {m.user_id for m in sorted_msgs}
+    participant_score = min(len(all_participants) / 4.0, 1.0)
+
+    return min(0.50 * rate_score + 0.25 * spike_score + 0.25 * participant_score, 1.0)
 
 
 def compute_novelty(
@@ -213,6 +250,62 @@ def compute_recency(event: CandidateEvent, now: datetime) -> float:
     hours_ago = (now - last_at).total_seconds() / 3600.0
     # Exponential decay: half-life ~12 hours
     return max(0.0, 2 ** (-hours_ago / 12.0))
+
+
+def compute_confidence(
+    event: CandidateEvent,
+    type_scores: dict[str, float],
+    embedding_topic_scores: dict[str, float] | None = None,
+) -> float:
+    """
+    Confidence in the event's inferred signals.
+
+    Components (all in [0, 1]):
+    1. Type score concentration — how decisively does one type dominate?
+       Uses gap between top and second-highest score. A dominant score
+       with a large gap signals clean classification.
+    2. Signal richness — more participants, messages, and reactions mean
+       richer evidence for our inferences.
+    3. Keyword–embedding agreement — when keyword topic labels and embedding
+       topic scores agree on the same topic, confidence is higher.
+
+    Final score is a weighted composite, range [0, 1].
+    """
+    # 1. Type score concentration (weight 0.45)
+    sorted_scores = sorted(type_scores.values(), reverse=True)
+    top = sorted_scores[0] if sorted_scores else 0.0
+    second = sorted_scores[1] if len(sorted_scores) > 1 else 0.0
+    # gap in [0, 1]; amplify so that a gap of 0.3+ counts as high
+    concentration = min((top - second) / 0.4, 1.0) if top > 0 else 0.0
+
+    # 2. Signal richness (weight 0.35)
+    # Each component saturates at a practical ceiling for team communication
+    participant_score = min(event.unique_participant_count / 4.0, 1.0)
+    message_score = min(event.message_count / 8.0, 1.0)
+    reaction_score = min(event.total_reactions / 6.0, 1.0)
+    richness = 0.4 * participant_score + 0.4 * message_score + 0.2 * reaction_score
+
+    # 3. Keyword–embedding topic agreement (weight 0.20)
+    # Only meaningful when embedding topic scores are available
+    agreement = 0.5  # Neutral default when embeddings are absent
+    if embedding_topic_scores:
+        # Find the top embedding topic and check whether its keyword signal also fires
+        top_emb_topic = max(embedding_topic_scores, key=embedding_topic_scores.get)
+        top_emb_score = embedding_topic_scores[top_emb_topic]
+        # Check alignment between type score concentration and embedding confidence
+        if top_emb_score > 0.15:
+            # High embedding signal for the top topic — treat as corroborating evidence
+            agreement = min(0.5 + top_emb_score, 1.0)
+        else:
+            agreement = 0.3  # Embeddings don't confirm anything clearly
+
+    confidence = 0.45 * concentration + 0.35 * richness + 0.20 * agreement
+
+    # Noise events get a mild cap — we're less certain our inferences are useful
+    if type_scores.get("noise", 0.0) > 0.5:
+        confidence = min(confidence, 0.65)
+
+    return round(max(0.0, min(confidence, 1.0)), 3)
 
 
 def _extract_topic_labels(text: str) -> list[str]:

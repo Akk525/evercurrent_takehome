@@ -53,6 +53,11 @@ class SemanticSignals(BaseModel):
     # How confident are we in these inferences overall?
     confidence: float = 0.5
 
+    # Embedding-based similarity scores to topic prototypes (filled by enricher if store available)
+    embedding_topic_scores: dict[str, float] = Field(default_factory=dict)
+    # Embedding-based novelty (filled by enricher if store available; None = not computed)
+    embedding_novelty_score: Optional[float] = None
+
 
 class CandidateEvent(BaseModel):
     """
@@ -113,6 +118,10 @@ class UserContextProfile(BaseModel):
     # Normalised activity level (0 = inactive, 1 = most active user in workspace)
     activity_level: float = 0.0
 
+    # Interaction-weighted affinity per thread (thread_id → weight)
+    # Values are normalised so the highest weight in the workspace = 1.0
+    interaction_weights: dict[str, float] = Field(default_factory=dict)
+
 
 # ---------------------------------------------------------------------------
 # Ranking and digest output
@@ -120,18 +129,30 @@ class UserContextProfile(BaseModel):
 
 class RankingFeatures(BaseModel):
     """Explainable per-feature scores used to compute final relevance score."""
-    user_affinity: float       # How closely does this event match the user's profile?
-    importance: float          # Event-level importance signal
-    urgency: float             # Event-level urgency signal
-    momentum: float            # Event-level momentum signal
-    novelty: float             # Event-level novelty signal
-    recency: float             # How recent is the last activity?
+    user_affinity: float           # How closely does this event match the user's profile?
+    importance: float              # Event-level importance signal
+    urgency: float                 # Event-level urgency signal
+    momentum: float                # Event-level momentum signal
+    novelty: float                 # Event-level novelty signal
+    recency: float                 # How recent is the last activity?
+    embedding_affinity: float = 0.0  # Embedding cosine similarity to user interest profile
 
     # Weights used (stored for traceability — not just the final number)
     weights: dict[str, float]
 
     # Final weighted score
     final_score: float
+
+
+class ExcludedDigestItem(BaseModel):
+    """
+    A candidate event that was considered but did not make the top-k cut.
+    Stored for explainability and debug inspection.
+    """
+    event_id: str
+    title: str
+    score: float
+    top_exclusion_reason: str  # Human-readable explanation of why this was not selected
 
 
 class RankedDigestItem(BaseModel):
@@ -159,3 +180,18 @@ class DailyDigest(BaseModel):
     generated_at: datetime
     total_candidates_considered: int
     llm_used: bool = False
+    # Events considered but not selected — populated when include_excluded=True
+    excluded_items: list[ExcludedDigestItem] = Field(default_factory=list)
+
+
+class SharedEventSummary(BaseModel):
+    """
+    Event-level summary shared across all users who see this event.
+    Computed once per event, reused across users to avoid redundant summarization.
+    """
+    event_id: str
+    title: str
+    summary: str        # Shared situation + impact + resolution text
+    event_type: str
+    unresolved: bool    # True if unresolved_score > 0.5
+    confidence: float

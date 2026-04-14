@@ -36,6 +36,10 @@ outputs/
 *.temp
 .DS_Store
 
+# Local agent worktrees
+.claude/worktrees/
+.claire/worktrees/
+
 # Large local artifacts
 *.zip
 *.tar
