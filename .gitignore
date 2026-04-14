@@ -27,6 +27,14 @@ dist/
 venv/
 env/
 
+# Frontend dependencies and build outputs
+node_modules/
+.next/
+out/
+dist/
+build/
+*.tsbuildinfo
+
 # Generated digest outputs
 outputs/
 
