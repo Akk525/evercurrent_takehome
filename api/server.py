@@ -11,11 +11,13 @@ Serves:
 from __future__ import annotations
 
 import json
+import uuid
+from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query, Body
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.ingest import load_workspace
@@ -42,6 +44,13 @@ app.add_middleware(
 _workspace: Optional[SlackWorkspace] = None
 _digests: dict = {}
 _profiles: dict = {}
+
+# In-memory DM store: canonical key = "uid_a:uid_b" (sorted)
+_dm_messages: dict[str, list[dict]] = defaultdict(list)
+
+
+def _dm_key(a: str, b: str) -> str:
+    return ":".join(sorted([a, b]))
 
 
 @app.on_event("startup")
@@ -176,6 +185,27 @@ def get_user_profile(user_id: str):
     if user_id not in _profiles:
         raise HTTPException(status_code=404, detail=f"No profile for user {user_id}")
     return _profiles[user_id].model_dump(mode="json")
+
+
+@app.get("/api/dm/{other_user_id}")
+def get_dm(other_user_id: str, as_: str = Query(..., alias="as")):
+    return {"messages": _dm_messages[_dm_key(as_, other_user_id)]}
+
+
+@app.post("/api/dm/{other_user_id}")
+def post_dm(
+    other_user_id: str,
+    as_: str = Query(..., alias="as"),
+    body: dict = Body(...),
+):
+    msg = {
+        "message_id": str(uuid.uuid4()),
+        "sender_id": as_,
+        "text": body.get("text", ""),
+        "timestamp": datetime.now(tz=timezone.utc).isoformat(),
+    }
+    _dm_messages[_dm_key(as_, other_user_id)].append(msg)
+    return msg
 
 
 @app.get("/health")

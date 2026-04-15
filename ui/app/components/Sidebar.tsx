@@ -5,11 +5,12 @@ import { useRouter, usePathname } from 'next/navigation';
 import { fetchWorkspace } from '../lib/api';
 import { WorkspaceData } from '../lib/types';
 import Avatar from './Avatar';
+import { useWorkspace } from '../context/WorkspaceContext';
 
 export default function Sidebar() {
   const [workspace, setWorkspace] = useState<WorkspaceData | null>(null);
-  const [currentUser, setCurrentUser] = useState('u_alice');
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const { currentUser, setCurrentUser } = useWorkspace();
   const router = useRouter();
   const pathname = usePathname();
 
@@ -17,16 +18,10 @@ export default function Sidebar() {
     fetchWorkspace().then(setWorkspace).catch(console.error);
   }, []);
 
-  useEffect(() => {
-    // Parse current user from URL if on digest page
-    const match = pathname?.match(/\/workspace\/digest\/([^/]+)/);
-    if (match) setCurrentUser(match[1]);
-  }, [pathname]);
-
   const isChannelActive = (channelId: string) =>
     pathname === `/workspace/${channelId}`;
-  const isDigestActive = (userId: string) =>
-    pathname === `/workspace/digest/${userId}`;
+  const isDMActive = (userId: string) =>
+    pathname === `/workspace/dm/${userId}`;
   const isAnyDigestActive = pathname?.includes('/workspace/digest/');
 
   const currentUserData = workspace?.users.find(u => u.user_id === currentUser);
@@ -88,12 +83,9 @@ export default function Sidebar() {
         {workspace?.users.map(user => (
           <div key={user.user_id} className="px-2">
             <button
-              onClick={() => {
-                setCurrentUser(user.user_id);
-                router.push(`/workspace/digest/${user.user_id}`);
-              }}
+              onClick={() => router.push(`/workspace/dm/${user.user_id}`)}
               className={`w-full flex items-center gap-2 px-2 py-0.5 rounded text-[14px] transition-colors ${
-                isDigestActive(user.user_id)
+                isDMActive(user.user_id)
                   ? 'bg-slack-blue text-white'
                   : 'text-purple-200 hover:bg-slack-purple-dark'
               }`}
@@ -131,7 +123,6 @@ export default function Sidebar() {
                 onClick={() => {
                   setCurrentUser(user.user_id);
                   setShowUserMenu(false);
-                  router.push(`/workspace/digest/${user.user_id}`);
                 }}
                 className={`w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-gray-50 transition-colors ${
                   user.user_id === currentUser ? 'bg-blue-50 text-blue-700' : 'text-gray-700'

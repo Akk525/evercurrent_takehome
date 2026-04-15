@@ -1,4 +1,5 @@
 import Sidebar from '../components/Sidebar';
+import { WorkspaceProvider } from '../context/WorkspaceContext';
 
 export default function WorkspaceLayout({
   children,
@@ -6,11 +7,11 @@ export default function WorkspaceLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex h-screen overflow-hidden bg-white">
-      <Sidebar />
-      <main className="flex-1 overflow-hidden flex flex-col">
-        {children}
-      </main>
-    </div>
+    <WorkspaceProvider>
+      <div className="flex h-screen overflow-hidden bg-white">
+        <Sidebar />
+        <main className="flex-1 overflow-hidden flex flex-col">{children}</main>
+      </div>
+    </WorkspaceProvider>
   );
 }

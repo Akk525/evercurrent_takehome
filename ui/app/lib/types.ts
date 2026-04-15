@@ -70,6 +70,13 @@ export interface DailyDigest {
   excluded_items: ExcludedDigestItem[];
 }
 
+export interface DMMessage {
+  message_id: string;
+  sender_id: string;
+  text: string;
+  timestamp: string;
+}
+
 export interface ThreadDetail {
   thread_id: string;
   channel_id: string;
