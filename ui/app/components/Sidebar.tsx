@@ -49,7 +49,9 @@ export default function Sidebar() {
                 : 'text-purple-200 hover:bg-slack-purple-dark'
             }`}
           >
-            <span className="text-base">🤖</span>
+            <span className="w-5 h-5 bg-[#4A154B] rounded text-white text-[10px] font-bold flex items-center justify-center flex-shrink-0 leading-none">
+              DB
+            </span>
             <span>Digest Bot</span>
           </button>
         </div>

@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { fetchThread } from '../lib/api';
-import { ThreadDetail, SlackMessage } from '../lib/types';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { fetchThread, postThreadReply } from '../lib/api';
+import { SlackMessage } from '../lib/types';
+import { useWorkspace } from '../context/WorkspaceContext';
 import Avatar from './Avatar';
 import MessageComposer from './MessageComposer';
 
@@ -27,7 +28,7 @@ function ThreadMessage({
   isRoot: boolean;
 }) {
   return (
-    <div className={`flex gap-2.5 px-4 py-1 hover:bg-[#f8f8f8] group transition-colors`}>
+    <div className="flex gap-2.5 px-4 py-1 hover:bg-[#f8f8f8] group transition-colors">
       <div className="w-8 flex-shrink-0 pt-0.5">
         <Avatar name={msg.display_name} size={isRoot ? 'md' : 'sm'} />
       </div>
@@ -66,18 +67,53 @@ function ThreadMessage({
 }
 
 export default function ThreadModal({ threadId, onClose }: ThreadModalProps) {
-  const [thread, setThread] = useState<ThreadDetail | null>(null);
+  const { currentUser } = useWorkspace();
+  const [messages, setMessages] = useState<SlackMessage[]>([]);
+  const [channelName, setChannelName] = useState('');
   const [loading, setLoading] = useState(true);
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const prevCountRef = useRef(0);
+
+  const poll = useCallback(async () => {
+    try {
+      const data = await fetchThread(threadId);
+      setChannelName(data.channel_name);
+      setMessages(prev =>
+        prev.length !== data.messages.length ? data.messages : prev,
+      );
+    } catch {
+      // silently ignore poll errors
+    } finally {
+      setLoading(false);
+    }
+  }, [threadId]);
 
   useEffect(() => {
     setLoading(true);
-    fetchThread(threadId)
-      .then(setThread)
-      .catch(console.error)
-      .finally(() => setLoading(false));
-  }, [threadId]);
+    setMessages([]);
+    prevCountRef.current = 0;
+    poll();
+    const id = setInterval(poll, 1500);
+    return () => clearInterval(id);
+  }, [poll]);
 
-  const [root, ...replies] = thread?.messages ?? [];
+  useEffect(() => {
+    if (messages.length > prevCountRef.current) {
+      bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+      prevCountRef.current = messages.length;
+    }
+  }, [messages.length]);
+
+  async function handleSend(text: string) {
+    try {
+      const msg = await postThreadReply(threadId, currentUser, text);
+      setMessages(prev => [...prev, msg]);
+    } catch (e) {
+      console.error('Reply failed', e);
+    }
+  }
+
+  const [root, ...replies] = messages;
 
   return (
     <div className="fixed inset-0 z-50 flex" onClick={onClose}>
@@ -93,8 +129,8 @@ export default function ThreadModal({ threadId, onClose }: ThreadModalProps) {
         <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between flex-shrink-0">
           <div>
             <h3 className="font-bold text-[#1d1c1d] text-[15px]">Thread</h3>
-            {thread && (
-              <p className="text-[12px] text-gray-500">#{thread.channel_name}</p>
+            {channelName && (
+              <p className="text-[12px] text-gray-500">#{channelName}</p>
             )}
           </div>
           <button
@@ -108,7 +144,9 @@ export default function ThreadModal({ threadId, onClose }: ThreadModalProps) {
         {/* Content */}
         <div className="flex-1 overflow-y-auto py-3">
           {loading && (
-            <div className="px-4 py-8 text-center text-gray-400 text-sm">Loading thread...</div>
+            <div className="px-4 py-8 text-center text-gray-400 text-sm">
+              Loading thread...
+            </div>
           )}
 
           {!loading && root && (
@@ -132,10 +170,11 @@ export default function ThreadModal({ threadId, onClose }: ThreadModalProps) {
               ))}
             </>
           )}
+          <div ref={bottomRef} />
         </div>
 
         {/* Reply composer */}
-        <MessageComposer placeholder="Reply…" />
+        <MessageComposer placeholder="Reply..." onSend={handleSend} />
       </div>
     </div>
   );

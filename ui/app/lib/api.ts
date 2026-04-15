@@ -1,4 +1,4 @@
-import type { DMMessage } from './types';
+import type { DMMessage, SlackMessage } from './types';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -52,5 +52,22 @@ export async function sendDMMessage(
     },
   );
   if (!res.ok) throw new Error('Failed to send DM');
+  return res.json();
+}
+
+export async function postThreadReply(
+  threadId: string,
+  asUserId: string,
+  text: string,
+): Promise<SlackMessage> {
+  const res = await fetch(
+    `${API_URL}/api/threads/${threadId}/reply?as=${encodeURIComponent(asUserId)}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    },
+  );
+  if (!res.ok) throw new Error('Failed to post thread reply');
   return res.json();
 }

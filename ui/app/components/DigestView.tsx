@@ -27,13 +27,22 @@ function formatDigestDate(dateStr: string): string {
 function introLine(digest: DailyDigest, user: SlackUser | null): string {
   const name = user?.display_name?.split(' ')[0] || 'there';
   const date = formatDigestDate(digest.date);
-  return `Hey ${name} 👋 Here's your daily digest for ${date}.`;
+  return `Hey ${name} — here's your daily digest for ${date}.`;
 }
 
 function headlineLine(digest: DailyDigest): string {
   const n = digest.items.length;
   const total = digest.total_candidates_considered;
   return `I scanned ${total} threads and surfaced ${n} item${n !== 1 ? 's' : ''} worth your attention. ${digest.headline}`;
+}
+
+/** Digest Bot avatar — consistent "DB" initials in purple */
+function BotAvatar() {
+  return (
+    <div className="w-8 h-8 bg-[#4A154B] rounded flex items-center justify-center text-white text-[11px] font-bold flex-shrink-0 leading-none">
+      DB
+    </div>
+  );
 }
 
 export default function DigestView({ userId }: DigestViewProps) {
@@ -43,24 +52,41 @@ export default function DigestView({ userId }: DigestViewProps) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    setLoading(true);
-    setError(null);
-    Promise.all([fetchDigest(userId), fetchWorkspace()])
-      .then(([digestData, workspaceData]) => {
-        setDigest(digestData);
-        setUser(workspaceData.users.find((u: SlackUser) => u.user_id === userId) || null);
-      })
-      .catch(() => setError('Could not load digest. Is the API server running?'))
-      .finally(() => setLoading(false));
+    let cancelled = false;
+
+    async function poll() {
+      try {
+        const [digestData, workspaceData] = await Promise.all([
+          fetchDigest(userId),
+          fetchWorkspace(),
+        ]);
+        if (!cancelled) {
+          setDigest(digestData);
+          setUser(
+            workspaceData.users.find((u: SlackUser) => u.user_id === userId) || null,
+          );
+          setError(null);
+        }
+      } catch {
+        if (!cancelled) setError('Could not load digest. Is the API server running?');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    poll();
+    const id = setInterval(poll, 10000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
   }, [userId]);
 
   return (
     <div className="flex flex-col h-full">
       {/* DM header */}
       <div className="px-4 py-2.5 border-b border-gray-200 flex-shrink-0 flex items-center gap-2">
-        <div className="w-8 h-8 bg-[#4A154B] rounded flex items-center justify-center text-white text-base flex-shrink-0 leading-none">
-          🤖
-        </div>
+        <BotAvatar />
         <div>
           <h2 className="font-bold text-[#1d1c1d] text-[15px] leading-tight">Digest Bot</h2>
           <p className="text-[12px] text-gray-500 leading-tight">
@@ -156,11 +182,7 @@ function BotMessage({
     <div className="flex gap-2.5 px-4 py-0.5 hover:bg-[#f8f8f8] group">
       {/* Avatar column — always takes the same width for alignment */}
       <div className="w-8 flex-shrink-0 flex flex-col items-center pt-0.5">
-        {showAvatar ? (
-          <div className="w-8 h-8 bg-[#4A154B] rounded flex items-center justify-center text-white text-sm leading-none">
-            🤖
-          </div>
-        ) : null}
+        {showAvatar ? <BotAvatar /> : null}
       </div>
 
       <div className="flex-1 min-w-0 pb-1">
