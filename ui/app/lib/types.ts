@@ -90,3 +90,23 @@ export interface WorkspaceData {
   users: SlackUser[];
   channels: SlackChannel[];
 }
+
+export interface StageTrace {
+  name: string;
+  label: string;
+  status: 'active' | 'empty' | 'skipped';
+  outputs: Record<string, unknown>;
+  score_delta: number;
+}
+
+export interface EventPipelineTrace {
+  event_id: string;
+  thread_id: string;
+  channel_id: string;
+  text_preview: string;
+  stages: StageTrace[];
+  final_score: number;
+  top_driver: string;
+  top_driver_value: number;
+  generated_at: string;
+}

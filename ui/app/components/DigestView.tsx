@@ -50,6 +50,8 @@ export default function DigestView({ userId }: DigestViewProps) {
   const [user, setUser] = useState<SlackUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [lastFetched, setLastFetched] = useState<Date | null>(null);
+  const [freshUpdate, setFreshUpdate] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -61,10 +63,16 @@ export default function DigestView({ userId }: DigestViewProps) {
           fetchWorkspace(),
         ]);
         if (!cancelled) {
-          setDigest(digestData);
+          setDigest(prev => {
+            if (prev && prev.generated_at !== digestData.generated_at) {
+              setFreshUpdate(true);
+            }
+            return digestData;
+          });
           setUser(
             workspaceData.users.find((u: SlackUser) => u.user_id === userId) || null,
           );
+          setLastFetched(new Date());
           setError(null);
         }
       } catch {
@@ -87,12 +95,27 @@ export default function DigestView({ userId }: DigestViewProps) {
       {/* DM header */}
       <div className="px-4 py-2.5 border-b border-gray-200 flex-shrink-0 flex items-center gap-2">
         <BotAvatar />
-        <div>
+        <div className="flex-1 min-w-0">
           <h2 className="font-bold text-[#1d1c1d] text-[15px] leading-tight">Digest Bot</h2>
           <p className="text-[12px] text-gray-500 leading-tight">
             App &middot; Personalized for {user?.display_name || userId}
           </p>
         </div>
+        {lastFetched && (
+          <div className="flex items-center gap-1.5 flex-shrink-0">
+            {freshUpdate && (
+              <span
+                className="text-[10px] text-green-600 bg-green-50 border border-green-200 px-1.5 py-0.5 rounded font-medium animate-pulse"
+                onAnimationEnd={() => setFreshUpdate(false)}
+              >
+                Updated
+              </span>
+            )}
+            <span className="text-[10px] text-gray-300 font-mono">
+              {lastFetched.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Message timeline */}

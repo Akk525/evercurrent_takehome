@@ -52,8 +52,17 @@ class FallbackProvider(LLMProvider):
         item: RankedDigestItem,
         profile: UserContextProfile,
     ) -> tuple[str, str]:
+        from src.impact import build_impact_statement
+
         summary = self._build_summary(event, item)
-        why_shown = self._build_why_shown(item, profile)
+        memory_signals = getattr(event, "issue_memory_signals", None)
+        why_shown = self._build_why_shown(item, profile, memory_signals)
+
+        # Populate impact_statement on the item (mutate in-place — item is owned by caller)
+        impact = build_impact_statement(event)
+        if impact:
+            item.impact_statement = impact
+
         return summary, why_shown
 
     def summarize_shared(self, event: CandidateEvent) -> str:
@@ -67,18 +76,27 @@ class FallbackProvider(LLMProvider):
         """
         Structured summary format: Situation. Impact. Resolution / next step.
 
-        Uses concrete phrases extracted from the thread text rather than
-        generic template strings. Aim: briefing-style, not form-letter style.
+        Uses structured evidence packets rather than a raw text blob, so summaries
+        are grounded in the most informative snippets rather than the full thread.
         """
+        from src.evidence import build_evidence_packet
+
         signals = event.signals
         if signals is None:
             return "A discussion thread with limited signal."
 
+        evidence = build_evidence_packet(event)
         event_type = signals.dominant_event_type
         participants = len(event.participant_ids)
 
-        # Extract a concrete anchor phrase from the thread text
-        key_phrase = _extract_key_phrase(event.text_bundle, event_type)
+        # Use the evidence blocker indicator if available; otherwise extract from text
+        if evidence.blocker_indicator and event_type in ("blocker", "risk"):
+            key_phrase = evidence.blocker_indicator[:120].rstrip(".!?")
+        elif evidence.key_technical_line:
+            key_phrase = evidence.key_technical_line[:120].rstrip(".!?")
+        else:
+            # Extract a concrete anchor phrase from the thread text
+            key_phrase = _extract_key_phrase(event.text_bundle, event_type)
 
         # 1. Situation — grounded in actual thread content
         if event_type == "blocker":
@@ -132,6 +150,7 @@ class FallbackProvider(LLMProvider):
         self,
         item: RankedDigestItem,
         profile: UserContextProfile,
+        memory_signals=None,  # Optional[IssueMemorySignals]
     ) -> str:
         features = item.reason_features
         reasons = []
@@ -159,7 +178,18 @@ class FallbackProvider(LLMProvider):
         if not reasons:
             reasons.append("it scored in the top items for your profile today")
 
-        return "Shown because " + ", and ".join(reasons) + "."
+        base = "Shown because " + ", and ".join(reasons) + "."
+
+        # Append cluster, memory, and state-change context if available
+        extras = []
+        if features.cluster_related_count > 0:
+            extras.append(
+                f"{features.cluster_related_count} related thread(s) on this issue exist."
+            )
+        if memory_signals is not None and not memory_signals.is_new_issue:
+            extras.append(f"Issue memory: {memory_signals.memory_label}.")
+
+        return (base + " " + " ".join(extras)).strip()
 
 
 class GeminiProvider(LLMProvider):
@@ -185,12 +215,21 @@ class GeminiProvider(LLMProvider):
         item: RankedDigestItem,
         profile: UserContextProfile,
     ) -> tuple[str, str]:
+        from src.impact import build_impact_statement
+
         prompt = _build_prompt(event, item, profile)
         response = self._client.models.generate_content(
             model=self._model,
             contents=prompt,
         )
-        return _parse_response(response.text or "")
+        summary, why_shown = _parse_response(response.text or "")
+
+        # Impact statement computed heuristically regardless of LLM availability
+        impact = build_impact_statement(event)
+        if impact:
+            item.impact_statement = impact
+
+        return summary, why_shown
 
     def summarize_shared(self, event: CandidateEvent) -> str:
         """Generate only the shared summary via LLM (no per-user why_shown)."""
@@ -207,34 +246,40 @@ def _build_prompt(
     item: RankedDigestItem,
     profile: UserContextProfile,
 ) -> str:
+    from src.evidence import build_evidence_packet
+
     signals = event.signals
     topic_str = ", ".join(signals.topic_labels) if signals and signals.topic_labels else "unknown"
     event_type = signals.dominant_event_type if signals else "unknown"
     urgency = signals.urgency_score if signals else 0.0
-
     unresolved_str = "yes" if (signals and signals.unresolved_score > 0.5) else "no"
-    top_topics = list(profile.topic_affinities.keys())[:4]
+    top_topics = list(profile.semantic_topic_affinities.keys())[:4] or list(profile.topic_affinities.keys())[:4]
+
+    evidence = build_evidence_packet(event)
+    evidence_text = evidence.to_text()
+
+    state_change = signals.state_change_hint if signals and signals.state_change_hint else "none detected"
+    memory_signals = getattr(event, "issue_memory_signals", None)
+    memory_context = memory_signals.memory_label if memory_signals else "new issue"
 
     return f"""You are generating a concise daily digest summary for an engineer on a hardware engineering team.
 
-Analyze the following Slack thread and produce a JSON response with exactly two fields:
+Analyze the following structured evidence from a Slack thread and produce a JSON response with exactly two fields:
 
 - "summary": 2-3 sentences structured as:
     1. What is happening (situation)
     2. Why it matters (impact on the project or team)
-    3. Current status or next step (if visible from the thread)
-  Use probabilistic language ("appears", "likely", "suggests") — do not state things as facts.
-  Do not invent details not present in the thread.
-  Focus on engineering substance, not social dynamics.
-  Keep under 90 words.
+    3. Current status or next step
+  Use probabilistic language ("appears", "likely", "suggests"). Do not invent details.
+  Focus on engineering substance. Keep under 90 words.
 
 - "why_shown": 1-2 sentences explaining why this was selected for this specific user.
   Reference their active topics or channels if relevant. Be specific, not generic.
   Keep under 50 words.
 
-Thread text:
+Structured evidence:
 ---
-{event.text_bundle[:1500]}
+{evidence_text}
 ---
 
 Thread metadata:
@@ -242,12 +287,14 @@ Thread metadata:
 - Topics: {topic_str}
 - Urgency: {urgency:.2f}/1.0
 - Appears unresolved: {unresolved_str}
+- State change: {state_change}
+- Issue memory: {memory_context}
 - Participants: {len(event.participant_ids)}
 
 User profile:
 - Active channels: {', '.join(profile.active_channel_ids[:4])}
 - Top topics: {', '.join(top_topics) if top_topics else 'unknown'}
-- Relevance score for this thread: {item.score:.2f}/1.0
+- Relevance score: {item.score:.2f}/1.0
 
 Respond with only valid JSON. No markdown, no code fences.
 """

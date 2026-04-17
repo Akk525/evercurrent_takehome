@@ -78,6 +78,36 @@ class TfidfEmbeddingProvider(EmbeddingProvider):
         return result
 
 
+def get_embedding_provider(provider_name: str | None = None) -> EmbeddingProvider:
+    """
+    Factory: return the configured embedding provider.
+
+    Resolution order:
+        1. `provider_name` argument (if passed explicitly)
+        2. DIGEST_EMBEDDING_PROVIDER environment variable
+        3. Default: "tfidf"
+
+    Valid values:
+        "tfidf"                — TF-IDF (default, no downloads required)
+        "sentence-transformers" — all-MiniLM-L6-v2 (requires package install)
+
+    Falls back to TF-IDF if sentence-transformers is requested but not installed,
+    printing a warning so the misconfiguration is visible.
+    """
+    import os
+
+    name = provider_name or os.environ.get("DIGEST_EMBEDDING_PROVIDER", "tfidf")
+
+    if name in ("sentence-transformers", "sentence_transformers", "st"):
+        try:
+            return SentenceTransformerProvider()
+        except RuntimeError as e:
+            print(f"[embeddings] WARNING: {e}. Falling back to TF-IDF.")
+            return TfidfEmbeddingProvider()
+
+    return TfidfEmbeddingProvider()
+
+
 class SentenceTransformerProvider(EmbeddingProvider):
     """
     Semantic embeddings via sentence-transformers.

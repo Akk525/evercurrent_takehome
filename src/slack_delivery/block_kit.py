@@ -131,6 +131,33 @@ def _item_blocks(item: RankedDigestItem, rank: int) -> list[dict]:
             },
         })
 
+    # Impact statement (V3 — why this matters to the project)
+    if getattr(item, "impact_statement", None):
+        blocks.append({
+            "type": "context",
+            "elements": [
+                {
+                    "type": "mrkdwn",
+                    "text": f"⚡ _{item.impact_statement}_",
+                }
+            ],
+        })
+
+    # Issue memory label (V3 — persistence context)
+    memory_label = getattr(item, "reason_features", None) and getattr(
+        item.reason_features, "issue_memory_label", ""
+    )
+    if memory_label and memory_label != "New issue":
+        blocks.append({
+            "type": "context",
+            "elements": [
+                {
+                    "type": "mrkdwn",
+                    "text": f"🔁 _{memory_label}_",
+                }
+            ],
+        })
+
     # Why shown
     if item.why_shown:
         blocks.append({

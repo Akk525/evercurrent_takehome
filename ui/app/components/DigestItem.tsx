@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { RankedDigestItem } from '../lib/types';
 import ScoreDebug from './ScoreDebug';
 import ThreadModal from './ThreadModal';
+import TraceModal from './TraceModal';
 
 interface DigestItemProps {
   item: RankedDigestItem;
@@ -33,6 +34,7 @@ const EVENT_TYPE_LABEL: Record<string, string> = {
 
 export default function DigestItem({ item, rank }: DigestItemProps) {
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
+  const [showTrace, setShowTrace] = useState(false);
 
   return (
     <>
@@ -76,6 +78,12 @@ export default function DigestItem({ item, rank }: DigestItemProps) {
                   View thread →
                 </button>
               )}
+              <button
+                onClick={() => setShowTrace(true)}
+                className="text-[11px] text-gray-400 hover:text-gray-600 hover:underline"
+              >
+                Decision trace →
+              </button>
             </div>
 
             {/* Debug panel */}
@@ -91,6 +99,13 @@ export default function DigestItem({ item, rank }: DigestItemProps) {
         <ThreadModal
           threadId={activeThreadId}
           onClose={() => setActiveThreadId(null)}
+        />
+      )}
+      {showTrace && (
+        <TraceModal
+          eventId={item.event_id}
+          eventTitle={item.title}
+          onClose={() => setShowTrace(false)}
         />
       )}
     </>

@@ -318,6 +318,54 @@ def _extract_topic_labels(text: str) -> list[str]:
     return labels
 
 
+def compute_state_change_hint(event: CandidateEvent) -> str | None:
+    """
+    Detect whether this thread shows a meaningful state transition.
+
+    Patterns detected:
+        - unresolved → resolved/fixed/done
+        - discussion → decision made
+        - investigation → escalated blocker
+        - risk → mitigation proposed
+        - open question → answered
+
+    Returns a short human-readable string describing the transition, or None.
+    """
+    text = event.text_bundle.lower()
+    lines = [l.lower() for l in event.text_bundle.split("\n") if l.strip()]
+
+    # Split into early and late portions of the thread
+    mid = max(1, len(lines) // 2)
+    early = " ".join(lines[:mid])
+    late = " ".join(lines[mid:])
+
+    # Pattern: unresolved → resolved
+    open_in_early = any(s in early for s in ["?", "investigating", "tbd", "blocked", "stuck"])
+    resolved_in_late = any(s in late for s in ["resolved", "fixed", "done", "confirmed", "merged"])
+    if open_in_early and resolved_in_late:
+        return "unresolved → resolved"
+
+    # Pattern: discussion → decision
+    discussion_early = any(s in early for s in ["should we", "options", "trade-off", "what do you think"])
+    decision_late = any(s in late for s in ["decided", "decision made", "agreed", "going with", "we will"])
+    if discussion_early and decision_late:
+        return "discussion → decision made"
+
+    # Pattern: risk → mitigation proposed
+    risk_early = any(s in early for s in ["at risk", "risk", "delay", "shortage"])
+    mitigation_late = any(s in late for s in ["workaround", "alternative", "fallback", "mitigation", "contingency"])
+    if risk_early and mitigation_late:
+        return "risk → mitigation proposed"
+
+    # Pattern: investigation → escalated blocker
+    investigating_early = any(s in early for s in ["investigating", "looking into", "checking"])
+    escalated_late = any(s in late for s in ["100%", "all units", "cannot proceed", "blocks", "critical"])
+    if investigating_early and escalated_late:
+        return "investigation → escalated to blocker"
+
+    return None
+
+
 def compute_title(event: CandidateEvent, type_scores: dict[str, float]) -> str:
     """
     Generate a short provisional title for the event.

@@ -82,6 +82,20 @@ class EmbeddingStore:
             raise RuntimeError("EmbeddingStore must be fit before use")
         return self._provider.embed(text)
 
+    def event_type_similarity_scores(self, key: str) -> dict[str, float]:
+        """
+        Return cosine similarity between a cached event embedding and each
+        event-type prototype. Used for hybrid event classification.
+        Returns scores in [0, 1] range.
+        """
+        emb = self._cache.get(key)
+        if emb is None:
+            return {}
+        return {
+            et: round(max(0.0, _cosine_sim(emb, proto_vec)), 3)
+            for et, proto_vec in self._event_type_vecs.items()
+        }
+
     def topic_similarity_scores(self, key: str) -> dict[str, float]:
         """
         Return cosine similarity between a cached event embedding and each

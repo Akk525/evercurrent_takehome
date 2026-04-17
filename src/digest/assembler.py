@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Optional
 
 from src.models import DailyDigest, RankedDigestItem, UserContextProfile, SharedEventSummary
-from src.models import SlackWorkspace, CandidateEvent
+from src.models import SlackWorkspace, CandidateEvent, DigestSections
 from src.ingest import load_workspace
 from src.events import build_candidate_events
 from src.enrichment import enrich_candidate_events
@@ -19,6 +19,7 @@ from src.ranking import rank_events_for_user, RankingConfig
 from src.embeddings import EmbeddingStore
 from src.summarization import summarize_digest_items, build_shared_summaries, FallbackProvider
 from src.summarization.providers import LLMProvider
+from src.issue_linking import build_issue_clusters
 
 
 def assemble_digest(
@@ -59,6 +60,12 @@ def assemble_digest(
         include_excluded=include_excluded,
     )
 
+    # Duplicate suppression: if multiple items are from the same issue cluster,
+    # keep only the highest-scoring representative per cluster.
+    ranked_items, suppressed = _suppress_cluster_duplicates(ranked_items, events_by_id)
+    if include_excluded:
+        excluded_items.extend(suppressed)
+
     # Summarize (LLM or fallback), reusing shared summaries where available
     ranked_items = summarize_digest_items(
         ranked_items,
@@ -70,6 +77,9 @@ def assemble_digest(
 
     headline = _generate_headline(ranked_items)
 
+    # Build digest sections
+    sections = _build_sections(ranked_items, events_by_id)
+
     return DailyDigest(
         user_id=user_id,
         date=date_str,
@@ -79,6 +89,93 @@ def assemble_digest(
         total_candidates_considered=len(enriched_events),
         llm_used=provider is not None and not isinstance(provider, FallbackProvider),
         excluded_items=excluded_items,
+        sections=sections,
+    )
+
+
+def _suppress_cluster_duplicates(
+    items: list[RankedDigestItem],
+    events_by_id: dict[str, CandidateEvent],
+) -> tuple[list[RankedDigestItem], list]:
+    """
+    If multiple ranked items belong to the same issue cluster, keep only
+    the highest-scoring one (already the first encountered since items are
+    sorted by score descending). Others are suppressed.
+
+    Returns (kept_items, suppressed_excluded_items).
+    """
+    from src.models import ExcludedDigestItem
+
+    seen_clusters: set[str] = set()
+    kept: list[RankedDigestItem] = []
+    suppressed: list[ExcludedDigestItem] = []
+
+    for item in items:
+        event = events_by_id.get(item.event_id)
+        cluster_id = getattr(event, "issue_cluster_id", None) if event else None
+
+        if cluster_id and cluster_id in seen_clusters:
+            # Suppress: another item from this cluster is already in the digest
+            suppressed.append(ExcludedDigestItem(
+                event_id=item.event_id,
+                title=item.title,
+                score=item.score,
+                top_exclusion_reason=(
+                    f"score={item.score:.3f}; suppressed — another item from the same "
+                    f"issue cluster (cluster={cluster_id}) was already included"
+                ),
+            ))
+        else:
+            if cluster_id:
+                seen_clusters.add(cluster_id)
+            kept.append(item)
+
+    return kept, suppressed
+
+
+def _build_sections(
+    items: list[RankedDigestItem],
+    events_by_id: dict[str, CandidateEvent],
+) -> DigestSections:
+    """
+    Bucket ranked items into named digest sections.
+
+    top_for_you:         high personal_relevance (>= 0.5) OR direct participant
+    what_changed:        items with a state_change_hint
+    still_unresolved:    items with unresolved_score > 0.5 and no state change resolved
+    also_worth_attention: everything else
+    """
+    top_for_you: list[str] = []
+    what_changed: list[str] = []
+    still_unresolved: list[str] = []
+    also_worth: list[str] = []
+
+    for item in items:
+        event = events_by_id.get(item.event_id)
+        signals = event.signals if event else None
+
+        has_state_change = bool(signals and signals.state_change_hint)
+        is_unresolved = bool(signals and signals.unresolved_score > 0.5)
+        is_resolved = has_state_change and signals and (
+            "resolved" in (signals.state_change_hint or "")
+            or "decision made" in (signals.state_change_hint or "")
+        )
+        high_personal = item.reason_features.personal_relevance >= 0.5
+
+        if has_state_change:
+            what_changed.append(item.event_id)
+        elif high_personal:
+            top_for_you.append(item.event_id)
+        elif is_unresolved and not is_resolved:
+            still_unresolved.append(item.event_id)
+        else:
+            also_worth.append(item.event_id)
+
+    return DigestSections(
+        top_for_you=top_for_you,
+        also_worth_attention=also_worth,
+        what_changed=what_changed,
+        still_unresolved=still_unresolved,
     )
 
 
@@ -169,6 +266,22 @@ def run_full_pipeline(
     if embedding_store is None:
         from src.enrichment.enricher import _build_embedding_store
         embedding_store = _build_embedding_store(enriched)
+
+    # 4b. Issue linking — cluster related events, mutates events in-place
+    with StageTimer.measure("issue_linking") as t:
+        build_issue_clusters(enriched, embedding_store=embedding_store)
+    if metrics is not None:
+        metrics.record_stage(t)
+
+    # 4c. Issue memory — match events to persistent issue records, annotate with
+    # IssueMemorySignals (new / ongoing / resurfacing), persist to SQLite
+    with StageTimer.measure("issue_memory") as t:
+        from src.issue_memory import IssueMemoryStore, match_and_update_issues
+        memory_store = IssueMemoryStore()
+        memory_store.init()
+        match_and_update_issues(enriched, memory_store, now)
+    if metrics is not None:
+        metrics.record_stage(t)
 
     # 5. User profiles (with interaction-weighted affinities)
     with StageTimer.measure("profiling") as t:

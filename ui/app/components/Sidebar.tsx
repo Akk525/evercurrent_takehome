@@ -23,6 +23,7 @@ export default function Sidebar() {
   const isDMActive = (userId: string) =>
     pathname === `/workspace/dm/${userId}`;
   const isAnyDigestActive = pathname?.includes('/workspace/digest/');
+  const isGraphActive = pathname === '/workspace/graph';
 
   const currentUserData = workspace?.users.find(u => u.user_id === currentUser);
 
@@ -40,7 +41,7 @@ export default function Sidebar() {
       {/* Scrollable nav */}
       <nav className="flex-1 overflow-y-auto py-2">
         {/* Digest Bot DM — pinned at top */}
-        <div className="px-2 mb-2">
+        <div className="px-2 mb-1">
           <button
             onClick={() => router.push(`/workspace/digest/${currentUser}`)}
             className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-sm font-semibold transition-colors ${
@@ -53,6 +54,23 @@ export default function Sidebar() {
               DB
             </span>
             <span>Digest Bot</span>
+          </button>
+        </div>
+
+        {/* Event Graph — pinned below digest bot */}
+        <div className="px-2 mb-2">
+          <button
+            onClick={() => router.push('/workspace/graph')}
+            className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-sm font-semibold transition-colors ${
+              isGraphActive
+                ? 'bg-slack-blue text-white'
+                : 'text-purple-200 hover:bg-slack-purple-dark'
+            }`}
+          >
+            <span className="w-5 h-5 bg-[#4A154B] rounded text-white text-[11px] flex items-center justify-center flex-shrink-0 leading-none">
+              ⬡
+            </span>
+            <span>Graph</span>
           </button>
         </div>
 

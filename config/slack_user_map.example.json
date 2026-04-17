@@ -1,0 +1,10 @@
+{
+  "_comment": "Maps engine user IDs (from mock data) to real Slack member IDs. Copy to slack_user_map.json and fill in real IDs.",
+  "u_alice": "U012AB3CD",
+  "u_bob": "U034EF5GH",
+  "u_carol": "U056IJ7KL",
+  "u_diana": "U078MN9OP",
+  "u_evan": "U090QR1ST",
+  "u_frank": "U012UV3WX",
+  "u_grace": "U034YZ5AB"
+}

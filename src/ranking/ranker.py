@@ -139,15 +139,71 @@ def _compute_features(
     # Fallback path (when topic scores are absent) uses embedding_store for a query embed.
     embedding_affinity = _compute_embedding_affinity(event, profile, embedding_store)
 
+    w_ua = weights.get("user_affinity", 0)
+    w_imp = weights.get("importance", 0)
+    w_urg = weights.get("urgency", 0)
+    w_mom = weights.get("momentum", 0)
+    w_nov = weights.get("novelty", 0)
+    w_rec = weights.get("recency", 0)
+    w_emb = weights.get("embedding_affinity", 0)
+
     final_score = (
-        weights.get("user_affinity", 0) * user_affinity
-        + weights.get("importance", 0) * importance
-        + weights.get("urgency", 0) * urgency
-        + weights.get("momentum", 0) * momentum
-        + weights.get("novelty", 0) * novelty
-        + weights.get("recency", 0) * recency
-        + weights.get("embedding_affinity", 0) * embedding_affinity
+        w_ua * user_affinity
+        + w_imp * importance
+        + w_urg * urgency
+        + w_mom * momentum
+        + w_nov * novelty
+        + w_rec * recency
+        + w_emb * embedding_affinity
     )
+
+    # V4: Graph-derived boost (additive, small weight so it doesn't dominate)
+    graph_signals = getattr(event, "graph_signals", None)
+    graph_boost = graph_signals.graph_impact_boost if graph_signals else 0.0
+    graph_centrality = graph_signals.graph_centrality_score if graph_signals else 0.0
+
+    # Add graph boost before memory boost — small additive signal, capped at 1.0
+    final_score = min(final_score + graph_boost * 0.05, 1.0)
+
+    # Issue memory boost: persistent / escalating issues get a mild upward nudge.
+    # Up to +15% of base score. Applied multiplicatively so low-scoring events
+    # don't surface solely because of persistence.
+    memory_signals = getattr(event, "issue_memory_signals", None)
+    issue_persistence_score = 0.0
+    issue_escalation_score = 0.0
+    issue_memory_label = ""
+    if memory_signals is not None:
+        issue_persistence_score = memory_signals.issue_persistence_score
+        issue_escalation_score = memory_signals.issue_escalation_score
+        issue_memory_label = memory_signals.memory_label
+        memory_boost = 1.0 + 0.10 * issue_persistence_score + 0.05 * issue_escalation_score
+        final_score = min(final_score * memory_boost, 1.0)
+
+    # Grouped sub-scores for explainability
+    # personal_relevance: user_affinity + embedding_affinity (normalised to their combined weight)
+    pr_weight = w_ua + w_emb
+    personal_relevance = (
+        (w_ua * user_affinity + w_emb * embedding_affinity) / pr_weight
+        if pr_weight > 0 else 0.0
+    )
+
+    # global_importance: importance + urgency (normalised to their combined weight)
+    gi_weight = w_imp + w_urg
+    global_importance = (
+        (w_imp * importance + w_urg * urgency) / gi_weight
+        if gi_weight > 0 else 0.0
+    )
+
+    # freshness: momentum + novelty + recency (normalised to their combined weight)
+    fr_weight = w_mom + w_nov + w_rec
+    freshness = (
+        (w_mom * momentum + w_nov * novelty + w_rec * recency) / fr_weight
+        if fr_weight > 0 else 0.0
+    )
+
+    # Issue cluster context
+    issue_cluster_id = getattr(event, "issue_cluster_id", None)
+    cluster_related_count = len(getattr(event, "related_event_ids", []))
 
     return RankingFeatures(
         user_affinity=round(user_affinity, 3),
@@ -159,6 +215,16 @@ def _compute_features(
         embedding_affinity=round(embedding_affinity, 3),
         weights=weights,
         final_score=round(final_score, 3),
+        personal_relevance=round(personal_relevance, 3),
+        global_importance=round(global_importance, 3),
+        freshness=round(freshness, 3),
+        issue_cluster_id=issue_cluster_id,
+        cluster_related_count=cluster_related_count,
+        issue_persistence_score=round(issue_persistence_score, 3),
+        issue_escalation_score=round(issue_escalation_score, 3),
+        issue_memory_label=issue_memory_label,
+        graph_impact_boost=round(graph_boost, 4),
+        graph_centrality_score=round(graph_centrality, 4),
     )
 
 
@@ -222,9 +288,6 @@ def _compute_embedding_affinity(
 
     Returns a value in [0, 1].
     """
-    if not profile.topic_affinities:
-        return 0.0
-
     event_topic_scores = event.signals.embedding_topic_scores if event.signals else {}
     if not event_topic_scores:
         # Fallback: requires embedding_store
@@ -237,15 +300,20 @@ def _compute_embedding_affinity(
             return embedding_store.user_profile_affinity(event.event_id, user_interest_text)
         return 0.0
 
-    # Weight each event topic score by the user's affinity for that topic.
-    # Normalise user affinities so they sum to 1 (prevents scale distortion).
-    total_affinity = sum(profile.topic_affinities.values())
+    # Prefer semantic_topic_affinities (embedding-based) when available;
+    # fall back to keyword-based topic_affinities.
+    user_affinities = profile.semantic_topic_affinities or profile.topic_affinities
+    if not user_affinities:
+        return 0.0
+
+    # Weighted dot product: event topic scores × user topic affinities
+    total_affinity = sum(user_affinities.values())
     if total_affinity <= 0:
         return 0.0
 
     weighted_sum = 0.0
     weight_sum = 0.0
-    for topic, user_weight in profile.topic_affinities.items():
+    for topic, user_weight in user_affinities.items():
         event_score = event_topic_scores.get(topic, 0.0)
         norm_weight = user_weight / total_affinity
         weighted_sum += norm_weight * event_score
@@ -254,9 +322,8 @@ def _compute_embedding_affinity(
     if weight_sum <= 0:
         return 0.0
 
-    # Scale up: cosine similarity against short prototype texts tends to be low.
-    # A raw score of 0.15 on the user's primary topic is meaningful — scale so
-    # that 0.15 maps to ~0.5 affinity (linear scaling with ceiling at 1.0).
+    # Scale: cosine sim against short prototype texts is naturally low.
+    # 0.15 raw → ~0.5 affinity (meaningful signal on the user's primary topic).
     raw = weighted_sum / weight_sum
     return round(min(raw * 3.0, 1.0), 3)
 
@@ -335,4 +402,6 @@ def _build_digest_item(
         reason_features=features,
         source_thread_ids=[event.thread_id],
         source_message_ids=event.message_ids,
+        ownership_signals=getattr(event, "ownership_signals", None),
+        drift_signals=getattr(event, "drift_signals", None),
     )

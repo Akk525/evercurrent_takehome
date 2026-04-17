@@ -83,6 +83,10 @@ def build_user_profiles(
         recent_threads = _recent_threads(uid, workspace)
         activity_level = msg_counts.get(uid, 0) / max_msgs
 
+        semantic_topic_affinities = _semantic_topic_affinities(
+            uid, enriched_events, normalised_weights
+        )
+
         profiles[uid] = UserContextProfile(
             user_id=uid,
             active_channel_ids=active_channels,
@@ -92,6 +96,7 @@ def build_user_profiles(
             recent_thread_ids=recent_threads,
             activity_level=round(activity_level, 3),
             interaction_weights=normalised_weights,
+            semantic_topic_affinities=semantic_topic_affinities,
         )
 
     return profiles
@@ -247,6 +252,50 @@ def _frequent_collaborators(user_id: str, workspace: SlackWorkspace) -> list[str
 
     sorted_collabs = sorted(cooccurrence, key=lambda u: cooccurrence[u], reverse=True)
     return sorted_collabs[:5]
+
+
+def _semantic_topic_affinities(
+    user_id: str,
+    events: list[CandidateEvent],
+    interaction_weights: dict[str, float],
+) -> dict[str, float]:
+    """
+    Compute semantic topic affinities using embedding_topic_scores from events
+    the user engaged with, weighted by interaction strength.
+
+    This is the embedding-based complement to keyword-based topic_affinities.
+    Where topic_affinities relies on keyword labels matching, this uses cosine
+    similarity to topic prototypes — catching cases where the user's threads
+    use different terminology but are semantically similar to a topic.
+
+    Returns normalised affinities, same key space as TOPIC_PROTOTYPES.
+    """
+    topic_scores: dict[str, float] = defaultdict(float)
+    total_weight = 0.0
+
+    for event in events:
+        if not event.signals or not event.signals.embedding_topic_scores:
+            continue
+
+        weight = interaction_weights.get(event.thread_id, 0.0)
+        if weight == 0.0 and user_id in event.participant_ids:
+            weight = 0.05  # Minimal signal
+        if weight == 0.0:
+            continue
+
+        for topic, sim in event.signals.embedding_topic_scores.items():
+            topic_scores[topic] += sim * weight
+            total_weight += weight
+
+    if total_weight == 0:
+        return {}
+
+    normalised = {
+        topic: round(score / total_weight, 4)
+        for topic, score in topic_scores.items()
+        if score > 0
+    }
+    return dict(sorted(normalised.items(), key=lambda x: x[1], reverse=True))
 
 
 def _recent_threads(user_id: str, workspace: SlackWorkspace) -> list[str]:

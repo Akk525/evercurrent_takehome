@@ -8,6 +8,7 @@ from .derived import (
     RankingFeatures,
     ExcludedDigestItem,
     DailyDigest,
+    DigestSections,
     SharedEventSummary,
 )
 
@@ -25,5 +26,6 @@ __all__ = [
     "RankingFeatures",
     "ExcludedDigestItem",
     "DailyDigest",
+    "DigestSections",
     "SharedEventSummary",
 ]
